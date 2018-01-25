@@ -12,7 +12,7 @@ class Frame:
         self.crc = crc
         self.payload = payload
 
-    def is_valid(self, key):
+    def is_valid(self, key: bytearray):
         """
         (copy) Reduced function of below "rc4_decrypt"
         Returns True or False whether the Frame is valid, i.e. its crc32 is coherent to the message transported
@@ -49,7 +49,7 @@ def byte_to_list(array: bytearray):
     return num
 
 
-def crc32(m):
+def crc32(m: bytearray):
     """
     Calculates the CRC32 value of message m
     :param m:
@@ -71,7 +71,7 @@ def crc32(m):
     return bytearray((~remainder % (1 << 32)).to_bytes(4, byteorder='big'))
 
 
-def rc4_extended_crc32(m):
+def rc4_extended_crc32(m: bytearray):
     """
     Given a message m, returns encoding of (as by X^32 . m(X)) and the CRC32 of m
     :param m:
@@ -83,7 +83,7 @@ def rc4_extended_crc32(m):
     return ex_crc
 
 
-def rc4_ksa(key):
+def rc4_ksa(key: bytearray):
     """
     Key-Scheduling Algorithm
     Given a key, returns the RC4 register after initilisation phase.
@@ -102,7 +102,7 @@ def rc4_ksa(key):
     return r
 
 
-def rc4_prga(r, t):
+def rc4_prga(r, t: int):
     """
     Pseudo-random generation algorithm
     Given a register R and an integer t, returns a RC4 cipher stream of length t
@@ -137,20 +137,23 @@ def rc4_crypt(m: bytearray, k: bytearray):
 
     stream = rc4_prga(r, length)
     for l in range(length):
-        """
-        a = m[l]
-        b = next(stream)
-        c = a ^ b
-        x = bytearray(c.to_bytes(1, byteorder='big'))
-        """
         x = bytearray((m[l] ^ next(stream)).to_bytes(1, byteorder='big'))
-
         result.extend(x)
 
     return result
 
 
-def wep_rc4_encrypt(m, k):
+def random_iv(length=24):
+    """
+    Returns a list of random bits, with default length 24.
+    :param length:
+    :return:
+    """
+    n_bytes = -(-length // 8)  # round up by upside down floor division
+    return bytearray(urandom(n_bytes))
+
+
+def wep_rc4_encrypt(m: bytearray, k: bytearray):
     """
     RC4 Encryption in WEP mode
     Given a message m and key k, returns the WEP implementation of the rc4 encryption of m with key k
@@ -171,17 +174,7 @@ def wep_rc4_encrypt(m, k):
     return iv, cipher
 
 
-def random_iv(length=24):
-    """
-    Returns a list of random bits, with default length 24.
-    :param length:
-    :return:
-    """
-    n_bytes = -(-length // 8)  # round up by upside down floor division
-    return bytearray(urandom(n_bytes))
-
-
-def wep_make_frame(m, key):
+def wep_make_frame(m: bytearray, key: bytearray):
     """
     FR : Trame
     Given a message m and a key k, returns a frame, i.e. :
@@ -202,7 +195,7 @@ def wep_make_frame(m, key):
     return Frame(iv, crc, cipher)
 
 
-def rc4_decrypt(k: bytearray, frame):
+def rc4_decrypt(k: bytearray, frame: Frame):
     """
     Given a key k and frame f, decrypts frame with key and returns cleartext.
     An error is raised if frame is not a valid frame.
@@ -225,29 +218,19 @@ def rc4_decrypt(k: bytearray, frame):
     # Compute crc32 from decrypted message
     computed_crc = crc32(cleartext_msg)
 
-    """
-    print("check")
-    print(byte_to_list(frame.crc))
-    print(byte_to_list(computed_crc))
-    print(byte_to_list(decrypted_crc))
-
-    print("so ?" + str(frame.crc == computed_crc == decrypted_crc))
-    print("so 2? " + str(frame.is_valid(k)))
-    """
-
     # Check if Frame is valid by verifying crc32 fingerprints
     try:
         assert frame.crc == decrypted_crc == computed_crc
     except AssertionError:
         return "[ERROR] MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation."
 
-    print("Frame is valid.")
+    # print("Frame is valid.")
     return cleartext_msg
 
 
-def check_crc_linearity(m1, m2):
+def check_crc_linearity(m1: bytearray, m2: bytearray):
     """
-    Function to verify crc linearity
+    Function to verify crc linearity property : crc(m1^m2) = crc(m1) ^ crc(m2)
     :param m1:
     :param m2:
     :return:
