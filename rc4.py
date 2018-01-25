@@ -345,23 +345,26 @@ def inject(m1: bytearray, m2: bytearray, m2f: Frame):
 
 
 if __name__ == '__main__':
+    # Variables (You would want to play here and change the values)
+    plaintext = "This is plaintext."
+    secret_key = "secret"
+
+    inject_message = "Injected."
+
     # Plaintext
-    plain1 = "abcdbcde"
     b_plain1 = bytearray()
-    b_plain1.extend(plain1.encode())
+    b_plain1.extend(plaintext.encode())
 
     # Secret
-    key1 = "secret"
     b_key1 = bytearray()
-    b_key1.extend(key1.encode())
+    b_key1.extend(secret_key.encode())
 
     # Encrypt
     f_iv, f_crc, f_cipher = f = wep_make_frame(b_plain1, b_key1)
 
     # Plaintext
-    plain2 = "bcde"
     b_plain2 = bytearray()
-    b_plain2.extend(plain2.encode())
+    b_plain2.extend(inject_message.encode())
 
     clear = rc4_decrypt(b_key1, f)
     print("valid ? " + str(f.is_valid(b_key1)))
