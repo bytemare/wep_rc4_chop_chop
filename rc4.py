@@ -135,8 +135,6 @@ def rc4_crypt(m: bytearray, k: bytearray):
     result = bytearray()
     r = rc4_ksa(k)
 
-    print("length : " + str(length))
-
     stream = rc4_prga(r, length)
     for l in range(length):
         """
@@ -149,7 +147,6 @@ def rc4_crypt(m: bytearray, k: bytearray):
 
         result.extend(x)
 
-    print("Encrypt : result length : " + str(len(result)))
     return result
 
 
@@ -205,12 +202,12 @@ def wep_make_frame(m, key):
     return Frame(iv, crc, cipher)
 
 
-def rc4_decrypt(k, frame):
+def rc4_decrypt(k: bytearray, frame):
     """
     Given a key k and frame f, decrypts frame with key and returns cleartext.
     An error is raised if frame is not a valid frame.
-    :param k:
-    :param f:
+    :type k: bytearray
+    :type frame: Frame
     :return:
     """
     # Preprare key for decryption
@@ -225,54 +222,138 @@ def rc4_decrypt(k, frame):
     cleartext_msg = decrypted_payload[:-len(frame.crc)]
     decrypted_crc = decrypted_payload[-len(frame.crc):]
 
+    # Compute crc32 from decrypted message
+    computed_crc = crc32(cleartext_msg)
 
+    """
     print("check")
     print(byte_to_list(frame.crc))
-    new = crc32(cleartext_msg)
-    print(byte_to_list(new))
+    print(byte_to_list(computed_crc))
     print(byte_to_list(decrypted_crc))
 
-    print("so ?" + str(frame.crc == new == decrypted_crc))
-    print("so 2?" + str(frame.is_valid(k)))
+    print("so ?" + str(frame.crc == computed_crc == decrypted_crc))
+    print("so 2? " + str(frame.is_valid(k)))
+    """
 
     # Check if Frame is valid by verifying crc32 fingerprints
     try:
-        assert frame.crc == decrypted_crc == new
+        assert frame.crc == decrypted_crc == computed_crc
     except AssertionError:
         return "[ERROR] MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation."
 
+    print("Frame is valid.")
+    return cleartext_msg
 
 
+def check_crc_linearity(m1, m2):
+    """
+    Function to verify crc linearity
+    :param m1:
+    :param m2:
+    :return:
+    """
+    # Build crc(m1) and crc( m1 || m2 )
+    print("== Messages ==")
+    print("m1 " + str(m1))
+    print("m2 " + str(m2))
+    crc_m1 = crc32(m1)
+    crc_m2 = crc32(m2)
+    print("== CRC 1 ==")
+    print("crc_m1 " + str(byte_to_list(crc_m1)) + " " + str(crc_m1[1]) + " " + str(len(crc_m1)))
+    print("crc_m2 " + str(byte_to_list(crc_m2)) + " " + str(crc_m2) + " " + str(len(crc_m2)))
+
+    # crc(m1||m2)
+    mm = bytearray()
+    # for i in range(min(len(m1), len(m2))):
+    #    mm.extend(bytearray((m1[i] ^ m2[i]).to_bytes(1, byteorder='big')))
+    mm.extend(m1)
+    mm.extend(m2)
+    print("== m1||2m ==")
+    print("m1||m2 " + str(byte_to_list(mm)) + " " + str(mm) + " " + str(len(mm)))
+
+    print("== crc32(mm ==")
+    crc_mm = crc32(mm)
+    print("crc_mm " + str(byte_to_list(crc_mm)) + " " + str(crc_mm) + " " + str(len(crc_mm)))
+    # print("crc_mm " + str(crc_mm))
+    print("crc_mm " + byte_to_string(crc_mm))
+
+    # crc(m1) ^ crc(m2)
+    crc = bytearray()
+    for i in range(len(crc_m1)):
+        xor = crc_m1[i] ^ crc_m2[i]
+        x = bytearray(xor.to_bytes(1, byteorder='big'))
+        crc.extend(x)
+
+    print("crc   " + str(byte_to_list(crc)) + " " + str(crc) + " " + str(len(crc)))
+    print("crc   " + byte_to_string(crc))
 
 
-    return "yo"
-
-
-def inject(m1, m2, m2f):
+def inject(m1: bytearray, m2: bytearray, m2f: Frame):
     """
     Given two messages m1 and m2, and the frame associated with m2 (as by the return values of wep_frame()),
     returns a valid frame for m1^m2
+
+    === Trick ===
+    Base :
+        crc(m1^m2) = crc(m1) ^ crc(m2)
+
+    Therefore :
+        rc4(k||iv) ^ (  (m1^m2) || crc(m1^m2)  )
+        = rc4(k||iv) ^ (m1 || crc(m1)) ^ (m2 || crc(m2))
+
+    Conclusion :
+        We finally have
+        crc4( m1||crc(m1), k||iv) ^  (m2 || crc(m2))
+        Meaning we can trivially inject something that would result in a valid frame
+
+    What we will do here is, given a frame for m2, inject m1 to have a new valid frame
+
     :param m1:
     :param m2:
     :param m2f:
     :return:
     """
 
-    return
+    # Get IV
+    iv = m2f.iv
+
+    # Xor the message into frame payload
+    payload = bytearray()
+    length = len(m1)
+    for i in range(length):
+        payload.extend(bytearray((m2f.payload[i] ^ m1[i]).to_bytes(1, byteorder='big')))
+
+    # Fresh Frame
+    frame = Frame(iv, m1, payload)
+
+    # Test if frame is valid
+    k = "secret"
+    b_k = bytearray()
+    b_k.extend(k.encode())
+    print("Valid Frame ? " + str(frame.is_valid(k.encode())))
+
+    return frame
 
 
 if __name__ == '__main__':
-    plain1 = "plaintext"
+    # Plaintext
+    plain1 = "abcd"
     b_plain1 = bytearray()
     b_plain1.extend(plain1.encode())
+
+    # Secret
     key1 = "secret"
     b_key1 = bytearray()
     b_key1.extend(key1.encode())
+
+    # Encrypt
     f_iv, f_crc, f_cipher = f = wep_make_frame(b_plain1, b_key1)
-    print("IV : " + str(f_iv))
-    print("IV : " + ''.join(chr(x) for x in f_iv))
-    # print("crc : " + crc.decode())
-    print("cipher : " + ''.join(chr(x) for x in f_cipher))
+
+    # Plaintext
+    plain2 = "bcde"
+    b_plain2 = bytearray()
+    b_plain2.extend(plain2.encode())
 
     clear = rc4_decrypt(b_key1, f)
-    print("cleartext : " + ''.join(chr(x) for x in clear))
+    print("valid ? " + str(f.is_valid(b_key1)))
+    print("decrypted : " + byte_to_string(clear))
