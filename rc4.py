@@ -5,6 +5,43 @@ if version_info[0] < 3:
     raise Exception("Python 3 or a more recent version is required.")
 
 
+class Frame:
+
+    def __init__(self, iv, crc, payload):
+        self.iv = iv
+        self.crc = crc
+        self.payload = payload
+
+    def is_valid(self, key):
+        """
+        (copy) Reduced function of below "rc4_decrypt"
+        Returns True or False whether the Frame is valid, i.e. its crc32 is coherent to the message transported
+        :param key:
+        :return: True or False
+        """
+        ivk = self.iv
+        ivk.extend(key)
+        d = rc4_crypt(self.payload, ivk)
+        m = d[:-len(self.crc)]
+        crc = d[-len(self.crc):]
+        c_crc = crc32(m)
+        return self.crc == crc == c_crc
+
+    def __iter__(self):
+        yield self.iv
+        yield self.crc
+        yield self.payload
+
+
+def byte_to_string(array: bytearray):
+    """
+    Given a bytearray, returns the assembling string representation
+    :param array:
+    :return:
+    """
+    return ''.join(chr(x) for x in array)
+
+
 def byte_to_list(array: bytearray):
     num = []
     for i in range(len(array)):
@@ -34,16 +71,16 @@ def crc32(m):
     return bytearray((~remainder % (1 << 32)).to_bytes(4, byteorder='big'))
 
 
-def rc4_crc32(m):
+def rc4_extended_crc32(m):
     """
     Given a message m, returns encoding of (as by X^32 . m(X)) and the CRC32 of m
     :param m:
     :return:
     """
-    encoded = bytearray(m)
-    crc = bytearray()
-    crc.extend(crc32(m))
-    return encoded, crc
+    ex_crc = bytearray()
+    ex_crc.extend(m)
+    ex_crc.extend(crc32(m))
+    return ex_crc
 
 
 def rc4_ksa(key):
@@ -85,13 +122,13 @@ def rc4_prga(r, t):
         yield k
 
 
-def rc4_encrypt(m, k):
+def rc4_crypt(m: bytearray, k: bytearray):
     """
     RC4 Encryption
-    Given a message m and key k, returns the rc4 encryption of m with key k
-    :param length:
-    :type m
-    :param k:
+    Can be used for encryption and decryption
+    Given a message m and key k, returns the rc4 de/encryption of m with key k
+    :type m: bytearray
+    :type k: bytearray
     :return:
     """
     length = len(m)
@@ -102,15 +139,13 @@ def rc4_encrypt(m, k):
 
     stream = rc4_prga(r, length)
     for l in range(length):
+        """
         a = m[l]
         b = next(stream)
         c = a ^ b
-
-        # x = bytearray((m[l] ^ next(stream)).to_bytes(2, byteorder='big'))
         x = bytearray(c.to_bytes(1, byteorder='big'))
-        # print("Encrypt : " + str(a.to_bytes(1, byteorder='big')) + " ^ " + str(b.to_bytes(1, byteorder='big')) + " = " + str(c.to_bytes(1, byteorder='big')) + "( " + str(x) + "/" + ''.join(chr(d) for d in x) + " )")
-        # print("Encrypt : " + str(a) + " ^ " + str(b) + " = " + str(c) + "( " + str(x) + "/" + ''.join(
-        #    chr(d) for d in x) + " )")
+        """
+        x = bytearray((m[l] ^ next(stream)).to_bytes(1, byteorder='big'))
 
         result.extend(x)
 
@@ -134,7 +169,7 @@ def wep_rc4_encrypt(m, k):
     ivk.extend(k)
     # print("encrypt : ivk : " + ''.join(chr(x) for x in ivk))
 
-    cipher = rc4_encrypt(m, ivk)
+    cipher = rc4_crypt(m, ivk)
 
     return iv, cipher
 
@@ -149,7 +184,7 @@ def random_iv(length=24):
     return bytearray(urandom(n_bytes))
 
 
-def wep_frame(m, key):
+def wep_make_frame(m, key):
     """
     FR : Trame
     Given a message m and a key k, returns a frame, i.e. :
@@ -160,19 +195,17 @@ def wep_frame(m, key):
     :param key:
     :return: IV, CRC, Cipher
     """
-    enc, crc = rc4_crc32(m)
+    crc = crc32(m)
 
     m_and_crc = bytearray(m)
     m_and_crc.extend(crc)
 
     iv, cipher = wep_rc4_encrypt(m_and_crc, key)
 
-    print("cipher : " + str(cipher))
-    print("cipher : " + ''.join(chr(x) for x in cipher))
-    return iv, crc, cipher
+    return Frame(iv, crc, cipher)
 
 
-def rc4_decrypt(k, f):
+def rc4_decrypt(k, frame):
     """
     Given a key k and frame f, decrypts frame with key and returns cleartext.
     An error is raised if frame is not a valid frame.
@@ -180,21 +213,37 @@ def rc4_decrypt(k, f):
     :param f:
     :return:
     """
-    iv, crc, cipher = f
+    # Preprare key for decryption
     ivk = bytearray()
-    ivk.extend(iv)
+    ivk.extend(frame.iv)
     ivk.extend(k)
-    clear = rc4_encrypt(cipher, ivk)
-    payload = clear[:-len(crc)]
-    dec_crc = clear[-len(crc):]
+
+    # Decrypt
+    decrypted_payload = rc4_crypt(frame.payload, ivk)
+
+    # Get the cleartext and the crc that were in the encrypted packet
+    cleartext_msg = decrypted_payload[:-len(frame.crc)]
+    decrypted_crc = decrypted_payload[-len(frame.crc):]
+
 
     print("check")
-    print(byte_to_list(crc))
-    new = crc32(payload)
+    print(byte_to_list(frame.crc))
+    new = crc32(cleartext_msg)
     print(byte_to_list(new))
-    print(byte_to_list(dec_crc))
+    print(byte_to_list(decrypted_crc))
 
-    print("so ?" + str(crc == new == dec_crc))
+    print("so ?" + str(frame.crc == new == decrypted_crc))
+    print("so 2?" + str(frame.is_valid(k)))
+
+    # Check if Frame is valid by verifying crc32 fingerprints
+    try:
+        assert frame.crc == decrypted_crc == new
+    except AssertionError:
+        return "[ERROR] MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation."
+
+
+
+
 
     return "yo"
 
@@ -219,7 +268,7 @@ if __name__ == '__main__':
     key1 = "secret"
     b_key1 = bytearray()
     b_key1.extend(key1.encode())
-    f_iv, f_crc, f_cipher = f = wep_frame(b_plain1, b_key1)
+    f_iv, f_crc, f_cipher = f = wep_make_frame(b_plain1, b_key1)
     print("IV : " + str(f_iv))
     print("IV : " + ''.join(chr(x) for x in f_iv))
     # print("crc : " + crc.decode())
