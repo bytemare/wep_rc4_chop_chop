@@ -1,9 +1,37 @@
-from binascii import crc32
 from os import urandom
 from sys import version_info
 
 if version_info[0] < 3:
     raise Exception("Python 3 or a more recent version is required.")
+
+
+def byte_to_list(array: bytearray):
+    num = []
+    for i in range(len(array)):
+        num.append(array[i])
+    return num
+
+
+def crc32(m):
+    """
+    Calculates the CRC32 value of message m
+    :param m:
+    :return: bytearray
+    """
+    remainder = int("0xFFFFFFFF", 16)
+    qx = int("0xEDB88320", 16)
+
+    for i in range(len(m) * 8):
+        bit = (m[i // 8] >> (i % 8)) & 1
+        remainder ^= bit
+        if remainder & 1:
+            multiple = qx
+        else:
+            multiple = 0
+        remainder >>= 1
+        remainder ^= multiple
+
+    return bytearray((~remainder % (1 << 32)).to_bytes(4, byteorder='big'))
 
 
 def rc4_crc32(m):
@@ -14,7 +42,7 @@ def rc4_crc32(m):
     """
     encoded = bytearray(m)
     crc = bytearray()
-    crc.extend(crc32(m).to_bytes(10, byteorder='big'))
+    crc.extend(crc32(m))
     return encoded, crc
 
 
@@ -156,7 +184,19 @@ def rc4_decrypt(k, f):
     ivk = bytearray()
     ivk.extend(iv)
     ivk.extend(k)
-    return rc4_encrypt(cipher, ivk)[:-len(crc)]
+    clear = rc4_encrypt(cipher, ivk)
+    payload = clear[:-len(crc)]
+    dec_crc = clear[-len(crc):]
+
+    print("check")
+    print(byte_to_list(crc))
+    new = crc32(payload)
+    print(byte_to_list(new))
+    print(byte_to_list(dec_crc))
+
+    print("so ?" + str(crc == new == dec_crc))
+
+    return "yo"
 
 
 def inject(m1, m2, m2f):
