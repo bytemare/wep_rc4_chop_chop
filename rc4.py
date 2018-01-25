@@ -252,40 +252,46 @@ def check_crc_linearity(m1, m2):
     :param m2:
     :return:
     """
+    import binascii
     # Build crc(m1) and crc( m1 || m2 )
     print("== Messages ==")
     print("m1 " + str(m1))
     print("m2 " + str(m2))
-    crc_m1 = crc32(m1)
-    crc_m2 = crc32(m2)
+    crc_m1 = bytearray(binascii.crc32(m1).to_bytes(4, byteorder='little'))
+    crc_m2 = bytearray(binascii.crc32(m2).to_bytes(4, byteorder='little'))
     print("== CRC 1 ==")
-    print("crc_m1 " + str(byte_to_list(crc_m1)) + " " + str(crc_m1[1]) + " " + str(len(crc_m1)))
+    print("crc_m1 " + str(byte_to_list(crc_m1)) + " " + str(crc_m1) + " " + str(len(crc_m1)))
     print("crc_m2 " + str(byte_to_list(crc_m2)) + " " + str(crc_m2) + " " + str(len(crc_m2)))
 
     # crc(m1||m2)
     mm = bytearray()
-    # for i in range(min(len(m1), len(m2))):
-    #    mm.extend(bytearray((m1[i] ^ m2[i]).to_bytes(1, byteorder='big')))
     mm.extend(m1)
     mm.extend(m2)
-    print("== m1||2m ==")
+    print("== m1||m2 ==")
     print("m1||m2 " + str(byte_to_list(mm)) + " " + str(mm) + " " + str(len(mm)))
 
-    print("== crc32(mm ==")
-    crc_mm = crc32(mm)
-    print("crc_mm " + str(byte_to_list(crc_mm)) + " " + str(crc_mm) + " " + str(len(crc_mm)))
+    print("== crc32(m1||m2) ==")
+    crc_mm = bytearray(binascii.crc32(mm).to_bytes(4, byteorder='little'))
+    print("crc32(m1||m2) " + str(byte_to_list(crc_mm)) + " " + str(crc_mm) + " " + str(len(crc_mm)))
     # print("crc_mm " + str(crc_mm))
-    print("crc_mm " + byte_to_string(crc_mm))
+    print("crc32(m1||m2) " + byte_to_string(crc_mm))
 
     # crc(m1) ^ crc(m2)
+    print("== crc(m1) ^ crc(m2) ==")
     crc = bytearray()
     for i in range(len(crc_m1)):
         xor = crc_m1[i] ^ crc_m2[i]
-        x = bytearray(xor.to_bytes(1, byteorder='big'))
+        x = bytearray(xor.to_bytes(1, byteorder='little'))
         crc.extend(x)
 
-    print("crc   " + str(byte_to_list(crc)) + " " + str(crc) + " " + str(len(crc)))
-    print("crc   " + byte_to_string(crc))
+    print("crc(m1) ^ crc(m2)   " + str(byte_to_list(crc)) + " " + str(crc) + " " + str(len(crc)))
+    print("crc(m1) ^ crc(m2)   " + byte_to_string(crc))
+
+    try:
+        assert crc_mm == crc
+        print("good")
+    except AssertionError:
+        print("[ERROR] CRC32 Linearity can not be verfied.")
 
 
 def inject(m1: bytearray, m2: bytearray, m2f: Frame):
@@ -317,11 +323,14 @@ def inject(m1: bytearray, m2: bytearray, m2f: Frame):
     # Get IV
     iv = m2f.iv
 
+    # Get m1||CRC(m1)
+    crc_ms1 = rc4_extended_crc32(m1)
+
     # Xor the message into frame payload
     payload = bytearray()
-    length = len(m1)
+    length = len(crc_ms1)
     for i in range(length):
-        payload.extend(bytearray((m2f.payload[i] ^ m1[i]).to_bytes(1, byteorder='big')))
+        payload.extend(bytearray((m2f.payload[i] ^ crc_ms1[i]).to_bytes(1, byteorder='big')))
 
     # Fresh Frame
     frame = Frame(iv, m1, payload)
@@ -330,14 +339,14 @@ def inject(m1: bytearray, m2: bytearray, m2f: Frame):
     k = "secret"
     b_k = bytearray()
     b_k.extend(k.encode())
-    print("Valid Frame ? " + str(frame.is_valid(k.encode())))
+    print("Success ? " + str(frame.is_valid(k.encode())))
 
     return frame
 
 
 if __name__ == '__main__':
     # Plaintext
-    plain1 = "abcd"
+    plain1 = "abcdbcde"
     b_plain1 = bytearray()
     b_plain1.extend(plain1.encode())
 
@@ -357,3 +366,11 @@ if __name__ == '__main__':
     clear = rc4_decrypt(b_key1, f)
     print("valid ? " + str(f.is_valid(b_key1)))
     print("decrypted : " + byte_to_string(clear))
+
+    print("== Check CRC Linearity ==")
+
+    check_crc_linearity(b_plain1, b_plain2)
+
+    print("== Check Injection Technique ==")
+
+    inject(b_plain2, b_plain1, f)
