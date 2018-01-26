@@ -207,8 +207,6 @@ def wep_make_frame(m: bytearray, key: bytearray):
     m_and_crc = bytearray(m)
     m_and_crc.extend(crc)
 
-    print("m_and_crc : " + str(byte_to_list(m_and_crc)) + " " + str(m_and_crc) + " " + str(len(m_and_crc)))
-
     iv, cipher = wep_rc4_encrypt(m_and_crc, key)
 
     return Frame(iv, crc, cipher)
@@ -463,7 +461,7 @@ def homebrew(m1, m2, m2f, debug=False):
     payload = bytearray()
     inject = bytearray()
     inject.extend(m1)
-    inject.extend(charge2)
+    inject.extend(charge)
     for i in range(len(stream)):
         payload.extend((inject[i] ^ m2f.payload[i]).to_bytes(1, byteorder='big'))
     if debug: print("payload : " + str(byte_to_list(payload)) + " " + str(payload) + " " + str(len(payload)))
@@ -474,8 +472,6 @@ def homebrew(m1, m2, m2f, debug=False):
 
     clear = rc4_decrypt(b_k, new_Frame)
     print("decrypted : " + byte_to_string(clear))
-
-    print("======= END HOMEBREW =======")
 
 
 if __name__ == '__main__':
@@ -510,4 +506,4 @@ if __name__ == '__main__':
 
     print("== Check Injection Technique ==")
 
-    homebrew(b_plain2, b_plain1, f, True)
+    homebrew(b_plain2, b_plain1, f)
