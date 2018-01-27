@@ -457,7 +457,7 @@ if __name__ == '__main__':
         print("For now only injection messages of same length as plaintext are accepted. Injection Aborted.")
         exit(0)
 
-    new_frame = inject(injection, plain, frame, True)
+    new_frame = inject(injection, plain, frame)
     print("New Frame :")
     print(new_frame)
     print("Frame Validity : " + str(new_frame.is_valid(key)))
