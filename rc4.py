@@ -84,8 +84,8 @@ def crc32(m: bytearray):
     :param m:
     :return: bytearray
     """
-    remainder = int("0x00000000", 16)
-    # remainder = int("0xFFFFFFFF", 16)
+
+    remainder = int("0xFFFFFFFF", 16)
     qx = int("0x04C11DB7", 16)
     # qx = int("0xEDB88320", 16)
 
