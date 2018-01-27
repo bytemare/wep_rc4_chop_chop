@@ -1,3 +1,4 @@
+from os import urandom
 from sys import version_info
 
 if version_info[0] < 3:
@@ -11,33 +12,54 @@ class Frame:
         self.crc = crc  # clair
         self.payload = payload  # chiffré
 
-    def is_valid(self, key: bytearray, debug=False):
+    def is_valid(self, key: bytearray, verbose=False):
         """
         (copy) Reduced function of below "rc4_decrypt"
         Returns True or False whether the Frame is valid, i.e. its crc32 is coherent to the message transported
+        :param verbose:
         :param key:
         :return: True or False
         """
         ivk = key[:]
         ivk.extend(self.iv)
-        d = rc4_crypt(self.payload, ivk)
+        decrypted = rc4_crypt(self.payload, ivk)
+        debug(verbose,
+              "payload : " + str(byte_to_list(self.payload)) + " " + str(self.payload) + " " + str(len(self.payload)))
+        debug(verbose, "decrypted : " + str(byte_to_list(decrypted)) + " " + str(decrypted) + " " + str(len(decrypted)))
 
-        m = d[:-len(self.crc)]
-        if debug: print("m : " + str(byte_to_list(m)) + " " + str(m) + " " + str(len(m)))
+        message = decrypted[:-len(self.crc)]
+        debug(verbose, "m : " + str(byte_to_list(message)) + " " + str(message) + " " + str(len(message)))
 
-        if debug: print("self.crc : " + str(byte_to_list(self.crc)) + " " + str(self.crc) + " " + str(len(self.crc)))
+        debug(verbose, "self.crc : " + str(byte_to_list(self.crc)) + " " + str(self.crc) + " " + str(len(self.crc)))
 
-        crc = d[-len(self.crc):]
-        if debug: print("crc : " + str(byte_to_list(crc)) + " " + str(crc) + " " + str(len(crc)))
-        _, c_crc = crc32(m)
-        if debug: print("c_crc : " + str(byte_to_list(c_crc)) + " " + str(c_crc) + " " + str(len(c_crc)))
+        decrypted_crc = decrypted[-len(self.crc):]
+        debug(verbose,
+              "crc : " + str(byte_to_list(decrypted_crc)) + " " + str(decrypted_crc) + " " + str(len(decrypted_crc)))
+        _, computed_crc = crc32(message)
+        debug(verbose,
+              "c_crc : " + str(byte_to_list(computed_crc)) + " " + str(computed_crc) + " " + str(len(computed_crc)))
 
-        return crc == c_crc
+        return decrypted_crc == computed_crc
 
     def __iter__(self):
         yield self.iv
         yield self.crc
         yield self.payload
+
+    def __str__(self):
+        return "Initialisation Vector : " + str(byte_to_list(self.iv)) + "\nCRC32 : " + str(
+            byte_to_list(self.crc)) + "\nEncrypted payload : " + str(byte_to_list(self.payload))
+
+
+def debug(state, message):
+    """
+    If state is set to True, then message is printed. If not, nothing happens.
+    :param state:
+    :param message:
+    :return:
+    """
+    if state:
+        print(message)
 
 
 def byte_to_string(array: bytearray):
@@ -62,8 +84,10 @@ def crc32(m: bytearray):
     :param m:
     :return: bytearray
     """
-    remainder = int("0xFFFFFFFF", 16)
-    qx = int("0xEDB88320", 16)
+    remainder = int("0x00000000", 16)
+    # remainder = int("0xFFFFFFFF", 16)
+    qx = int("0x04C11DB7", 16)
+    # qx = int("0xEDB88320", 16)
 
     for i in range(len(m) * 8):
         bit = (m[i // 8] >> (i % 8)) & 1
@@ -130,11 +154,12 @@ def rc4_prga(r, t: int):
         yield k
 
 
-def rc4_crypt(m: bytearray, k: bytearray, debug=False):
+def rc4_crypt(m: bytearray, k: bytearray, verbose=False):
     """
     RC4 Encryption
     Can be used for encryption and decryption
     Given a message m and key k, returns the rc4 de/encryption of m with key k
+    :param verbose:
     :type m: bytearray
     :type k: bytearray
     :return:
@@ -149,13 +174,12 @@ def rc4_crypt(m: bytearray, k: bytearray, debug=False):
     for l in range(length):
         a = next(stream)
         s.extend(a.to_bytes(1, byteorder='big'))
-        x = bytearray((m[l] ^ a).to_bytes(1, byteorder='big'))
-        result.extend(x)
+        result.extend(bytearray((m[l] ^ a).to_bytes(1, byteorder='big')))
 
-    if debug: print("key : " + str(byte_to_list(k)) + " " + str(k) + " " + str(len(k)))
-    if debug: print("encryption stream : " + str(byte_to_list(s)) + " " + str(s) + " " + str(len(s)))
-    if debug: print("message : " + str(byte_to_list(m)) + " " + str(m) + " " + str(len(m)))
-    if debug: print("result : " + str(byte_to_list(result)) + " " + str(result) + " " + str(len(result)))
+    debug(verbose, "key : " + str(byte_to_list(k)) + " " + str(k) + " " + str(len(k)))
+    debug(verbose, "encryption stream : " + str(byte_to_list(s)) + " " + str(s) + " " + str(len(s)))
+    debug(verbose, "message : " + str(byte_to_list(m)) + " " + str(m) + " " + str(len(m)))
+    debug(verbose, "result : " + str(byte_to_list(result)) + " " + str(result) + " " + str(len(result)))
 
     return result
 
@@ -167,7 +191,7 @@ def random_iv(length=24):
     :return:
     """
     n_bytes = -(-length // 8)  # round up by upside down floor division
-    return bytearray("abc".encode())  # , urandom(n_bytes))
+    return bytearray(urandom(n_bytes))
 
 
 def wep_rc4_encrypt(m: bytearray, k: bytearray):
@@ -225,7 +249,6 @@ def rc4_decrypt(k: bytearray, frame: Frame):
     ivk.extend(k)
     ivk.extend(frame.iv)
 
-
     # Decrypt
     decrypted_payload = rc4_crypt(frame.payload, ivk)
 
@@ -238,7 +261,7 @@ def rc4_decrypt(k: bytearray, frame: Frame):
 
     # Check if Frame is valid by verifying crc32 fingerprints
     try:
-        assert frame.crc == decrypted_crc == computed_crc
+        assert decrypted_crc == computed_crc
     except AssertionError:
         return "[ERROR] MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation."
 
@@ -246,124 +269,7 @@ def rc4_decrypt(k: bytearray, frame: Frame):
     return cleartext_msg
 
 
-def check_crc_linearity(m1: bytearray, m2: bytearray):
-    """
-    Function to verify crc linearity property : crc(m1+m2) = crc(m1) ^ crc(m2)
-    :param m1:
-    :param m2:
-    :return:
-    """
-    """
-    # Normalise messages to same size
-    m1 = m1_
-    m2 = m2_
-
-    if len(m1) > len(m2):
-        print("1 is longer")
-        m2 = bytearray(len(m1))
-        print("m2 " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
-        m2[-len(m1):] = m2_
-        print("m2 " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
-    elif len(m2) > len(m1):
-        print("2 is longer")
-        m1_ = bytearray(len(m2))
-        m1[-len(m1):] = m1_
-    """
-
-    i_crc_m1, crc_m1 = crc32(m1)  # bytearray(crc32(m1)[1])
-    i_crc_m2, crc_m2 = crc32(m2)  # bytearray(crc32(m2)[1])
-
-    add_crc_p = i_crc_m1 + i_crc_m2
-    add_crc_x = i_crc_m1 ^ i_crc_m2
-
-    print("add_crc_p + " + str(add_crc_p))
-    print("add_crc_x ^ " + str(add_crc_x))
-
-    i_add_x = m1[0] ^ m2[0]
-    print("i_add ^ " + str(i_add_x))
-    i_add_p = m1[0] + m2[0]
-    print("i_add + " + str(i_add_p))
-
-    crc_add_p = crc32(bytearray(i_add_p.to_bytes(1, byteorder='big')))[0]
-    crc_add_x = crc32(bytearray(i_add_x.to_bytes(1, byteorder='big')))[0]
-
-    print("crc_add_p " + str(crc_add_p))
-    print("crc_add_x " + str(crc_add_x))
-
-
-
-
-
-    # Build crc(m1) and crc( m1 || m2 )
-    print("== Messages ==")
-    print("m1 " + str(m1))
-    print("m2 " + str(m2))
-    print("")
-    print("m1 " + str(byte_to_list(m1)) + " " + str(m1) + " " + str(len(m1)))
-    print("m2 " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
-    i_crc_m1, crc_m1 = crc32(m1)  # bytearray(crc32(m1)[1])
-    i_crc_m2, crc_m2 = crc32(m2)  # bytearray(crc32(m2)[1])
-    print("== CRC 1 ==")
-    print("crc_m1 " + str(i_crc_m1) + " " + str(byte_to_list(crc_m1)) + " " + str(crc_m1) + " " + str(len(crc_m1)))
-    print("crc_m2 " + str(i_crc_m2) + " " + str(byte_to_list(crc_m2)) + " " + str(crc_m2) + " " + str(len(crc_m2)))
-
-    # crc(m1+m2)
-
-    print("max ")
-
-    mm = bytearray(max(len(m1), len(m2)))
-    alt = None
-    if len(m1) >= len(m2):
-        mm[:] = m1
-        alt = m2
-    elif len(m2) > len(m1):
-        mm[:] = m2
-        alt = m1
-
-    print("mm " + str(byte_to_list(mm)) + " " + str(mm) + " " + str(len(mm)))
-    print("alt " + str(byte_to_list(alt)) + " " + str(alt) + " " + str(len(alt)))
-
-    for i in range(min(len(m1), len(m2))):
-        print("i : " + str(i) + " / " + str(min(len(m1), len(m2))))
-
-        print("mm " + str(mm[i]))
-        print("alt " + str(alt[i]))
-        x = mm[i] + alt[i]
-
-        mm[i] = x
-    # mm.extend(m1)
-    # mm.extend(m2)
-    print("== m1+m2 ==")
-    print("m1+m2 " + str(byte_to_list(mm)) + " " + str(mm) + " " + str(len(mm)))
-
-    print("== crc32(m1+m2) ==")
-    i_crc_mm, crc_mm = crc32(mm)
-    print("crc32(m1+m2) " + str(i_crc_mm) + " " + str(byte_to_list(crc_mm)) + " " + str(crc_mm) + " " + str(len(crc_mm)))
-    # print("crc_mm " + str(crc_mm))
-    print("crc32(m1+m2) " + byte_to_string(crc_mm))
-
-    # crc(m1) ^ crc(m2)
-    print("== crc(m1) ^ crc(m2) ==")
-    crc = bytearray()
-    for i in range(len(crc_m1)):
-        xor = crc_m1[i] ^ crc_m2[i]
-        x = bytearray(xor.to_bytes(1, byteorder='big'))
-        crc.extend(x)
-
-    i_crc = i_crc_m1 ^ i_crc_m2
-    print("i_crc = " + str(i_crc))
-
-    print("crc(m1) ^ crc(m2)   " + str(byte_to_list(crc)) + " " + str(crc) + " " + str(len(crc)))
-    print("crc(m1) ^ crc(m2)   " + byte_to_string(crc))
-
-    try:
-        assert crc_mm == crc
-        print("good")
-    except AssertionError:
-        print("[ERROR] CRC32 Linearity can not be verfied.")
-
-
-def homebrew(m1, m2, m2f, debug=False):
+def inject(m1, m2, m2f, verbose=False):
     """
     Given two messages m1 and m2, and the frame associated with m2 (as by the return values of wep_frame()),
     returns a valid frame for m1^m2
@@ -383,6 +289,7 @@ def homebrew(m1, m2, m2f, debug=False):
 
     What we will do here is, given a frame for m2, inject m1 and get a new valid frame
 
+    :param verbose:
     :param m1:
     :param m2:
     :param m2f:
@@ -392,27 +299,30 @@ def homebrew(m1, m2, m2f, debug=False):
     k = "Key"
     b_k = bytearray()
     b_k.extend(k.encode())
-    if debug: print("new Valid Frame : " + str(m2f.is_valid(b_k)))
+    debug(verbose, "new Valid Frame : " + str(m2f.is_valid(b_k)))
 
-    m1 = m1
+    debug(verbose, "===> Computing CRC of injected message")
     m1_crc = crc32(m1)[1]
     m1_crc_ex = rc4_extended_crc32(m1)
-    if debug: print("m1 : " + str(byte_to_list(m1)) + " " + str(m1) + " " + str(len(m1)))
-    if debug: print("m1_crc : " + str(byte_to_list(m1_crc)) + " " + str(m1_crc) + " " + str(len(m1_crc)))
-    if debug: print("m1_crc_ex : " + str(byte_to_list(m1_crc_ex)) + " " + str(m1_crc_ex) + " " + str(len(m1_crc_ex)))
+    debug(verbose, "m1 : " + str(byte_to_list(m1)) + " " + str(m1) + " " + str(len(m1)))
+    debug(verbose, "m1_crc : " + str(byte_to_list(m1_crc)) + " " + str(m1_crc) + " " + str(len(m1_crc)))
+    debug(verbose, "m1_crc_ex : " + str(byte_to_list(m1_crc_ex)) + " " + str(m1_crc_ex) + " " + str(len(m1_crc_ex)))
 
-    m2 = m2
+    debug(verbose, "===> Computing CRC of encrypted message")
     m2_crc = crc32(m2)[1]
     m2_crc_ex = rc4_extended_crc32(m2)
-    if debug: print("m2 : " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
-    if debug: print("m2_crc : " + str(byte_to_list(m2_crc)) + " " + str(m2_crc) + " " + str(len(m2_crc)))
-    if debug: print("m2_crc_ex : " + str(byte_to_list(m2_crc_ex)) + " " + str(m2_crc_ex) + " " + str(len(m2_crc_ex)))
+    debug(verbose, "m2 : " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
+    debug(verbose, "m2_crc : " + str(byte_to_list(m2_crc)) + " " + str(m2_crc) + " " + str(len(m2_crc)))
+    debug(verbose, "m2_crc_ex : " + str(byte_to_list(m2_crc_ex)) + " " + str(m2_crc_ex) + " " + str(len(m2_crc_ex)))
 
+    """
     crc_xor = bytearray()
     for x in range(len(m1_crc)):
         crc_xor.extend((m1_crc[x] ^ m2_crc[x]).to_bytes(1, byteorder='big'))
-    if debug: print("crc_xor : " + str(byte_to_list(crc_xor)) + " " + str(crc_xor) + " " + str(len(crc_xor)))
+    debug(verbose, "crc_xor : " + str(byte_to_list(crc_xor)) + " " + str(crc_xor) + " " + str(len(crc_xor)))
+    """
 
+    debug(verbose, "===> Assembling messages")
     mxm = bytearray(max(len(m1), len(m2)))
     alt = None
     if len(m1) >= len(m2):
@@ -428,82 +338,144 @@ def homebrew(m1, m2, m2f, debug=False):
     mpm.extend(m1)
     mpm.extend(m2)
     mpm_crc = crc32(mpm)[1]
-    if debug: print("mpm_crc : " + str(byte_to_list(mpm_crc)) + " " + str(mpm_crc) + " " + str(len(mpm_crc)))
+    debug(verbose, "mpm_crc : " + str(byte_to_list(mpm_crc)) + " " + str(mpm_crc) + " " + str(len(mpm_crc)))
 
     mxm_crc = crc32(mxm)[1]
     mxm_crc_ex = rc4_extended_crc32(mxm)
-    if debug: print("mxm : " + str(byte_to_list(mxm)) + " " + str(mxm) + " " + str(len(mxm)))
-    if debug: print("mxm_crc : " + str(byte_to_list(mxm_crc)) + " " + str(mxm_crc) + " " + str(len(mxm_crc)))
-    if debug: print(
-        "mxm_crc_ex : " + str(byte_to_list(mxm_crc_ex)) + " " + str(mxm_crc_ex) + " " + str(len(mxm_crc_ex)))
+    debug(verbose, "mxm : " + str(byte_to_list(mxm)) + " " + str(mxm) + " " + str(len(mxm)))
+    debug(verbose, "mxm_crc : " + str(byte_to_list(mxm_crc)) + " " + str(mxm_crc) + " " + str(len(mxm_crc)))
+    debug(verbose,
+          "mxm_crc_ex : " + str(byte_to_list(mxm_crc_ex)) + " " + str(mxm_crc_ex) + " " + str(len(mxm_crc_ex)))
 
-    if debug: print("computing charge 1...")
+    debug(verbose, "===> Computing injection crc")
     charge = bytearray()
     for i in range(len(mxm_crc)):
         charge.extend((mxm_crc[i] ^ m2_crc[i]).to_bytes(1, byteorder='big'))
-    if debug: print("charge : " + str(byte_to_list(charge)) + " " + str(charge) + " " + str(len(charge)))
+    debug(verbose, "charge : " + str(byte_to_list(charge)) + " " + str(charge) + " " + str(len(charge)))
 
-    if debug: print("computing charge 2...")
+    """
+    debug(verbose, "computing charge 2...")
     charge2 = bytearray()
     for i in range(len(mxm_crc)):
-        c = m1_crc[i] | m2_crc[i]
+        c = m1_crc[i] ^ m2_crc[i]
         charge2.extend((c ^ m2_crc[i]).to_bytes(1, byteorder='big'))
-    if debug: print("charge2 : " + str(byte_to_list(charge2)) + " " + str(charge2) + " " + str(len(charge2)))
+    debug(verbose, "charge2 : " + str(byte_to_list(charge2)) + " " + str(charge2) + " " + str(len(charge2)))
+    """
 
-    if debug: print("Getting stream ...")
+    debug(verbose, "===> Getting encryption stream")
     stream = bytearray()
     for l in range(len(m2_crc_ex)):
         x = bytearray((m2_crc_ex[l] ^ m2f.payload[l]).to_bytes(1, byteorder='big'))
         stream.extend(x)
-    if debug: print("stream : " + str(byte_to_list(stream)) + " " + str(stream) + " " + str(len(stream)))
+    debug(verbose, "stream : " + str(byte_to_list(stream)) + " " + str(stream) + " " + str(len(stream)))
 
-    if debug: print("Computing inject and encrypt...")
+    debug(verbose, "===> Assembling inject and encrypt")
     payload = bytearray()
-    inject = bytearray()
-    inject.extend(m1)
-    inject.extend(charge)
+    injection = bytearray()
+    injection.extend(m1)
+    injection.extend(charge)
     for i in range(len(stream)):
-        payload.extend((inject[i] ^ m2f.payload[i]).to_bytes(1, byteorder='big'))
-    if debug: print("payload : " + str(byte_to_list(payload)) + " " + str(payload) + " " + str(len(payload)))
+        payload.extend((injection[i] ^ m2f.payload[i]).to_bytes(1, byteorder='big'))
+    debug(verbose, "payload : " + str(byte_to_list(payload)) + " " + str(payload) + " " + str(len(payload)))
+    debug(verbose, "===> Message injected")
 
-    new_Frame = Frame(m2f.iv, mxm_crc, payload)
-
-    print("new Valid Frame : " + str(new_Frame.is_valid(b_k)))
-
-    clear = rc4_decrypt(b_k, new_Frame)
-    print("decrypted : " + byte_to_string(clear))
+    return Frame(m2f.iv, mxm_crc, payload)
 
 
 if __name__ == '__main__':
     # Variables (You would want to play here and change the values)
-    plaintext = "plaintext"
+    plaintext = "My cleartext"
     secret_key = "Key"
 
-    inject_message = "modified!"
+    inject_message = "is modified!"
+
+    print("=== Test Run ===")
+    print("=> Plaintext : " + plaintext)
+    print("=> secret : " + secret_key)
+    print("=> injection message : " + inject_message)
+
+    print("")
+    print("### Setting parameters ...")
 
     # Plaintext
-    b_plain1 = bytearray()
-    b_plain1.extend(plaintext.encode())
+    plain = bytearray()
+    plain.extend(plaintext.encode())
 
     # Secret
-    b_key1 = bytearray()
-    b_key1.extend(secret_key.encode())
+    key = bytearray()
+    key.extend(secret_key.encode())
 
-    # Encrypt
-    f_iv, f_crc, f_cipher = f = wep_make_frame(b_plain1, b_key1)
+    injection = bytearray()
+    injection.extend(inject_message.encode())
 
-    # Plaintext
-    b_plain2 = bytearray()
-    b_plain2.extend(inject_message.encode())
+    print("")
+    print("### 1. Executing CRC32:=proc(M) ###")
 
-    clear = rc4_decrypt(b_key1, f)
-    print("valid ? " + str(f.is_valid(b_key1)))
+    print("CRC32(plaintext) = " + str(crc32(plain)[0]))
+
+    print("")
+    print("### 2. Executing RC4KSA:=proc(K) ###")
+    r = rc4_ksa(key)
+    print("RC4KSA(key) = " + str(r))
+
+    print("")
+    print("### 3. Executing RC4PRGA:=proc(R, t) ###")
+    stream = list(rc4_prga(r, len(plaintext)))
+    print("RC4PRGA(R, t) = " + str(stream))
+
+    print("")
+    print("### 4. Executing RC4:=proc(M, K) ###")
+    rc4 = rc4_crypt(plain, key)
+    print("RC4(M, K) = " + str(byte_to_list(rc4)))
+
+    print("")
+    print("### 5. Executing RandomIV:=proc() ###")
+    iv = random_iv()
+    print("RandomIV() = " + str(byte_to_list(iv)))
+
+    print("")
+    print("### 6. Executing Trame:=proc(M, K) ###")
+    f_iv, f_crc, f_cipher = frame = wep_make_frame(plain, key)
+    print(frame)
+    print("Frame Validity : " + str(frame.is_valid(key)))
+
+    print("")
+    print("### 7. Executing Decrypt:=proc(K, T) ###")
+    clear = rc4_decrypt(key, frame)
+    if byte_to_string(clear) == plaintext:
+        print("Success !")
+    else:
+        print("Failed to correctly decrypt :(")
+    print("Decrypted payload : " + byte_to_string(clear))
+
+    print("")
+    print("### 8. Executing Inject:=proc(K, T) ###")
+
+    try:
+        assert len(plain) == len(injection)
+    except AssertionError:
+        print("For now only injection messages of same length as plaintext are accepted. Injection Aborted.")
+        exit(0)
+
+    new_frame = inject(injection, plain, frame, True)
+    print("New Frame :")
+    print(new_frame)
+    print("Frame Validity : " + str(new_frame.is_valid(key)))
+
+    clear = rc4_decrypt(key, new_frame)
     print("decrypted : " + byte_to_string(clear))
+    compare = bytearray()
+    for i in range(max(len(plain), len(injection))):
+        if i >= len(plain):
+            compare.extend(inject[i:i + 1])
+        else:
+            if i >= len(injection):
+                compare.extend(plain[i:i + 1])
+            else:
+                compare.extend((plain[i] ^ injection[i]).to_bytes(1, byteorder='big'))
+    if new_frame.is_valid(key) and clear == compare:
+        print("Successfull injection !")
+    else:
+        print("Injection failed :(")
 
-    # print("== Check CRC Linearity ==")
-
-    #check_crc_linearity(b_plain1, b_plain2)
-
-    print("== Check Injection Technique ==")
-
-    homebrew(b_plain2, b_plain1, f)
+    exit(0)
