@@ -1,6 +1,8 @@
 from os import urandom
 from sys import version_info
 
+import bitstring
+
 if version_info[0] < 3:
     raise Exception("Python 3 or a more recent version is required.")
 
@@ -20,6 +22,7 @@ class Frame:
         :param key:
         :return: True or False
         """
+        print("##### IS VALID #####")
         ivk = key[:]
         ivk.extend(self.iv)
         decrypted = rc4_crypt(self.payload, ivk)
@@ -27,12 +30,23 @@ class Frame:
               "payload : " + str(byte_to_list(self.payload)) + " " + str(self.payload) + " " + str(len(self.payload)))
         debug(verbose, "decrypted : " + str(byte_to_list(decrypted)) + " " + str(decrypted) + " " + str(len(decrypted)))
 
+        payload_bits = bitstring.BitArray(self.payload)
+        print("payload bits " + str(payload_bits))
+
+        decrypted_bits = bitstring.BitArray(decrypted)
+        print("decrypted bits " + str(decrypted_bits))
+
         message = decrypted[:-len(self.crc)]
+        message_bits = bitstring.BitArray(message)
+        print("message bits " + str(message_bits.hex))
         debug(verbose, "m : " + str(byte_to_list(message)) + " " + str(message) + " " + str(len(message)))
 
         debug(verbose, "self.crc : " + str(byte_to_list(self.crc)) + " " + str(self.crc) + " " + str(len(self.crc)))
 
         decrypted_crc = decrypted[-len(self.crc):]
+        decrypted_crc_bits = bitstring.BitArray(decrypted_crc)
+        print("decrypted crc " + str(decrypted_crc_bits.uint))
+
         debug(verbose,
               "crc : " + str(byte_to_list(decrypted_crc)) + " " + str(decrypted_crc) + " " + str(len(decrypted_crc)))
         _, computed_crc = crc32(message)
@@ -86,8 +100,8 @@ def crc32(m: bytearray):
     """
 
     remainder = int("0xFFFFFFFF", 16)
-    qx = int("0x04C11DB7", 16)
-    # qx = int("0xEDB88320", 16)
+    # qx = int("0x04C11DB7", 16)
+    qx = int("0xEDB88320", 16)
 
     for i in range(len(m) * 8):
         bit = (m[i // 8] >> (i % 8)) & 1
@@ -269,6 +283,35 @@ def rc4_decrypt(k: bytearray, frame: Frame):
     return cleartext_msg
 
 
+def mix_crc(a, b, c):
+    """
+    Given 3 bytearrays, returns the xor between the 3 crcs of the input data
+    :param a:
+    :param b:
+    :param c:
+    :return:
+    """
+    i_a_crc, _ = crc32(a)
+    i_b_crc, _ = crc32(b)
+    i_c_crc, _ = crc32(c)
+
+    xor = i_a_crc ^ i_b_crc ^ i_c_crc
+
+    return xor, bytearray(xor.to_bytes(4, byteorder='little'))
+
+
+def mix(a, b, c):
+    """
+    Given 3 bytearrays
+    :param a:
+    :param b:
+    :param c:
+    :return:
+    """
+
+
+
+
 def inject(m1, m2, m2f, verbose=False):
     """
     Given two messages m1 and m2, and the frame associated with m2 (as by the return values of wep_frame()),
@@ -296,11 +339,6 @@ def inject(m1, m2, m2f, verbose=False):
     :return:
     """
 
-    k = "Key"
-    b_k = bytearray()
-    b_k.extend(k.encode())
-    debug(verbose, "new Valid Frame : " + str(m2f.is_valid(b_k)))
-
     debug(verbose, "===> Computing CRC of injected message")
     m1_crc = crc32(m1)[1]
     m1_crc_ex = rc4_extended_crc32(m1)
@@ -314,6 +352,11 @@ def inject(m1, m2, m2f, verbose=False):
     debug(verbose, "m2 : " + str(byte_to_list(m2)) + " " + str(m2) + " " + str(len(m2)))
     debug(verbose, "m2_crc : " + str(byte_to_list(m2_crc)) + " " + str(m2_crc) + " " + str(len(m2_crc)))
     debug(verbose, "m2_crc_ex : " + str(byte_to_list(m2_crc_ex)) + " " + str(m2_crc_ex) + " " + str(len(m2_crc_ex)))
+
+    zero = bytearray("0".encode())
+    i_zero, zero_crc = crc32(zero)
+    print("crc(0) : " + str(i_zero))
+    debug(verbose, "zero crc : " + str(byte_to_list(zero_crc)) + " " + str(zero_crc) + " " + str(len(zero_crc)))
 
     """
     crc_xor = bytearray()
@@ -353,14 +396,20 @@ def inject(m1, m2, m2f, verbose=False):
         charge.extend((mxm_crc[i] ^ m2_crc[i]).to_bytes(1, byteorder='big'))
     debug(verbose, "charge : " + str(byte_to_list(charge)) + " " + str(charge) + " " + str(len(charge)))
 
-    """
+
     debug(verbose, "computing charge 2...")
     charge2 = bytearray()
     for i in range(len(mxm_crc)):
-        c = m1_crc[i] ^ m2_crc[i]
-        charge2.extend((c ^ m2_crc[i]).to_bytes(1, byteorder='big'))
+        c = m1_crc[i] ^ zero_crc[i]
+        charge2.extend(c.to_bytes(1, byteorder='big'))
     debug(verbose, "charge2 : " + str(byte_to_list(charge2)) + " " + str(charge2) + " " + str(len(charge2)))
-    """
+
+    debug(verbose, "computing charge 3...")
+    charge3 = bytearray()
+    for i in range(len(mxm_crc)):
+        c = m1_crc[i] ^ m2_crc[i] ^ zero_crc[i]
+        charge3.extend(c.to_bytes(1, byteorder='big'))
+    debug(verbose, "charge3 : " + str(byte_to_list(charge3)) + " " + str(charge3) + " " + str(len(charge3)))
 
     debug(verbose, "===> Getting encryption stream")
     stream = bytearray()
@@ -368,6 +417,7 @@ def inject(m1, m2, m2f, verbose=False):
         x = bytearray((m2_crc_ex[l] ^ m2f.payload[l]).to_bytes(1, byteorder='big'))
         stream.extend(x)
     debug(verbose, "stream : " + str(byte_to_list(stream)) + " " + str(stream) + " " + str(len(stream)))
+    debug(verbose, "crypted: " + str(byte_to_list(m2f.payload)) + " " + str(m2f.payload) + " " + str(len(m2f.payload)))
 
     debug(verbose, "===> Assembling inject and encrypt")
     payload = bytearray()
@@ -379,34 +429,311 @@ def inject(m1, m2, m2f, verbose=False):
     debug(verbose, "payload : " + str(byte_to_list(payload)) + " " + str(payload) + " " + str(len(payload)))
     debug(verbose, "===> Message injected")
 
-    return Frame(m2f.iv, mxm_crc, payload)
+    debug(verbose, "===> 2. Assembling inject and encrypt")
+    payload = bytearray()
+    injection = bytearray()
+    injection.extend(m1)
+    injection.extend(charge)
+    for i in range(len(m2f.payload[-4:])):
+        payload.extend((injection[i] ^ m2f.payload[i]).to_bytes(1, byteorder='big'))
+
+    debug(verbose, "payload : " + str(byte_to_list(payload)) + " " + str(payload) + " " + str(len(payload)))
+    debug(verbose, "===> Message injected")
+
+    return Frame(m2f.iv, charge, payload)
+
+
+def prepend_zeros(data: bytes, length: int):
+    """
+    Given a bytes type input, returns it prepended with length '0'
+    :param input:
+    :param length:
+    :return:
+    """
+    print("prepend " + str(length))
+    return length * b"0" + data
+
+
+def bin_inject(m_prime, m, frame, key, verbose=True):
+    """
+
+    :param m_prime:
+    :param m:
+    :param frame:
+    :return:
+    """
+    reference_length = len(frame.payload) - 4
+
+    debug(verbose, "===> Getting encryption stream")
+    m2_crc_ex = rc4_extended_crc32(m)
+    stream = bytearray()
+    for l in range(len(m) + 4):
+        x = bytearray((m2_crc_ex[l] ^ frame.payload[l]).to_bytes(1, byteorder='big'))
+        stream.extend(x)
+    debug(verbose, "stream : " + str(byte_to_list(stream)) + " " + str(stream) + " " + str(len(stream)))
+    debug(verbose,
+          "crypted: " + str(byte_to_list(frame.payload)) + " " + str(frame.payload) + " " + str(len(frame.payload)))
+    stream_bits = bitstring.BitArray(stream)
+
+    m2_crc_ex_bits = bitstring.BitArray(m2_crc_ex)
+    payload_bits = bitstring.BitArray(frame.payload)
+
+    m_bits = bitstring.BitArray(m)
+    i_m_crc = crc32(m_bits.tobytes())[0]
+    m_crc_bits = bitstring.BitArray(uint=crc32(bytearray(m))[0], length=32)
+    m_ext = m_bits + m_crc_bits
+
+    bit_stream = payload_bits ^ m_ext
+
+    inject = bitstring.BitArray(
+        m_prime)  # bitstring.BitArray(prepend_zeros(bytes(m_prime), reference_length - len(m_prime)))
+    inject_crc = crc32(inject.tobytes())[0]
+    inject_crc_bits = bitstring.BitArray(uint=crc32(bytearray(m_prime))[0], length=32)
+    print("inejct crc " + str(inject_crc))
+
+    # bitstring.BitArray(uint=crc32(inject.tobytes())[0], length=32)
+
+    # Create complementary bitstream for xor injection
+    zero_bits = bitstring.BitArray(reference_length * b"\0")
+    i_zero_crc = crc32(zero_bits.tobytes())[0]
+    zero_crc_bits = bitstring.BitArray(uint=crc32(bytearray(zero_bits.tobytes()))[0], length=32)
+
+    xor_messages = m_bits ^ inject
+    xor_messages_zero = m_bits ^ inject ^ zero_bits
+    print("xor_messages : \t\t" + str(xor_messages))
+    print("xor_messages_zero \t" + str(xor_messages_zero))
+    crc_xor_messages = bitstring.BitArray(uint=crc32(bytearray(xor_messages.bytes))[0], length=32)
+    crc_xor_messages_zero = bitstring.BitArray(uint=crc32(bytearray(xor_messages_zero.bytes))[0], length=32)
+    print("crc_xor_messages : \t\t" + str(crc_xor_messages))
+    print("crc_xor_messages_zer : \t" + str(crc_xor_messages_zero))
+    i_crc_xor_messages_zero = crc32(xor_messages_zero.tobytes())[0]
+
+    xor_crc_of_inject_and_clear_messsage = inject_crc_bits ^ m_crc_bits
+    xor_crc_of_inject_and_clear_messsage_zero = zero_crc_bits ^ inject_crc_bits ^ m_crc_bits
+
+    print("=> " + str(i_zero_crc))
+    print("=> " + str(i_m_crc))
+    print("=> " + str(inject_crc))
+
+    mix = zero_bits ^ m_bits ^ inject
+    mix_crc = crc32(mix.tobytes())[0]
+
+    crc = m_crc_bits ^ inject_crc_bits ^ zero_crc_bits
+
+    print("=> " + str(mix_crc))
+    print("=> " + str(crc))
+
+    print("############ Solution !!!!")
+
+    print("inject \t" + str(inject))
+    print("injSect^0\t" + str(inject ^ zero_bits))
+
+    print("crc(0) " + str(zero_crc_bits))
+    y = inject_crc_bits ^ zero_crc_bits
+    print("y " + str(y))
+    res_crc = y ^ m_crc_bits
+    payload = m_bits ^ inject ^ zero_bits
+    crc_payload = bitstring.BitArray(uint=crc32(bytearray(payload.bytes))[0], length=32)
+    print("crc payload \t" + str(crc_payload))
+    print("injected crc\t" + str(res_crc))
+    print("############ Solution !!!!")
+
+    x = crc_xor_messages ^ m_crc_bits
+    print("wonder : " + str(x.uint))
+
+    print("xor msg : " + str(crc_xor_messages.uint))
+    print("xor msg0: " + str(crc_xor_messages_zero.uint))
+    print("xor crc : " + str(xor_crc_of_inject_and_clear_messsage.uint))
+    print("xor crc0: " + str(xor_crc_of_inject_and_clear_messsage_zero.uint))
+    print("############")
+
+    print("m_ext " + str(m_ext))
+    print("m2_cr " + str(m2_crc_ex_bits))
+    print("paylo " + str(payload_bits))
+    print("strea " + str(stream_bits))
+    print("bitsS " + str(bit_stream))
+
+    payload_crc_bits = payload_bits[-32:]
+    crc_stream_bits = bitstring.BitArray(stream[-4:])
+    decrypted_m_crc = payload_crc_bits ^ crc_stream_bits
+    print("decrypted crc " + str(decrypted_m_crc))
+    print("real crc " + str(m_crc_bits))
+
+    final_encrypted_crc = crc_stream_bits ^ m_crc_bits ^ inject_crc_bits
+    print("final encrypted crc " + str(decrypted_m_crc))
+    decrypted_mm_crc = final_encrypted_crc ^ crc_stream_bits
+    print("decrypted crc " + str(decrypted_mm_crc.uint))
+    print("normal mm crc " + str(xor_crc_of_inject_and_clear_messsage))
+    # print("normal with 0 " + str(xor_crcs_zero))
+
+    print("====== Fresh mount =====")
+
+    print("crc(0) " + str(zero_crc_bits))
+    y = inject_crc_bits ^ zero_crc_bits
+    print("y " + str(y))
+    res_crc = y ^ m_crc_bits
+    payload = m_bits ^ inject ^ zero_bits
+    crc_payload = bitstring.BitArray(uint=crc32(bytearray(payload.tobytes()))[0], length=32)
+    print("crc payload \t" + str(crc_payload))
+    print("injected crc\t" + str(res_crc))
+
+    # CRC of injected message
+    inject_bits = bitstring.BitArray(m_prime)
+    inject_crc_bits = bitstring.BitArray(uint=crc32(bytearray(m_prime))[0], length=32)
+    inject_plus_crc_bits = inject_bits + inject_crc_bits
+
+    # Create complementary zeroed array
+    zero_bits = bitstring.BitArray((len(frame.payload) - 4) * b"\0")
+    zero_crc_bits = bitstring.BitArray(uint=crc32(bytearray(zero_bits))[0], length=32)
+    zero_plus_crc_bits = zero_bits + zero_crc_bits
+
+    # Create a crc to inject
+    crc_inject_bits = inject_crc_bits ^ zero_crc_bits
+
+    # Assemble final inject
+    final_inject = inject_bits + crc_inject_bits
+
+    # Get target payload
+    original_payload_bits = bitstring.BitArray(frame.payload)
+
+    # Get decryption elements for verification
+    m_bits = bitstring.BitArray(m)
+    m_bits_crc = bitstring.BitArray(uint=crc32(bytearray(m))[0], length=32)
+    m_bits_crc_verify = bitstring.BitArray(frame.crc)
+    print("Right crc ? " + str(m_bits_crc == m_bits_crc_verify))
+    m_and_crc_bits = m_bits + m_bits_crc
+
+    original_cipherstream = original_payload_bits ^ m_and_crc_bits
+
+    new_payload = m_and_crc_bits ^ final_inject
+    print("new payload  " + str(new_payload))
+    new_encrypted_payload = new_payload ^ original_cipherstream
+
+    verify_on_clear_bits = new_payload[:-32]
+    verify_on_clear_crc_bits = new_payload[-32:]
+    verify_on_clear_bits_computed_crc = bitstring.BitArray(uint=crc32(bytearray(verify_on_clear_bits))[0], length=32)
+    print("xored message " + str(verify_on_clear_bits))
+    print("xored crc \t" + str(verify_on_clear_crc_bits))
+    print("computed crc  " + str(verify_on_clear_bits_computed_crc))
+
+    # Operate injection
+
+    malicious_payload_bits = original_payload_bits ^ final_inject
+
+    print("encrypted " + str(new_encrypted_payload))
+    print("malicious " + str(malicious_payload_bits))
+
+    # Verify frame validity
+
+    cleartext = malicious_payload_bits ^ original_cipherstream
+    print("decrypted payload " + str(cleartext))
+
+    message = cleartext[:-32]
+    print("decrypted message " + str(message))
+    message_crc = cleartext[-32:]
+    print("decrypted crc     " + str(message_crc))
+
+    verify_crc = bitstring.BitArray(uint=crc32(bytearray(message.tobytes()))[0], length=32)
+    print("message crc " + str(message_crc))
+    print("verify crc  " + str(verify_crc))
+
+    print("HEEEEEEEEEEEEEEEEEEEEEEEEEERRRRRRRRRRRRRRRRRREEEEEEEEEEEEEE")
+    print("xored message     " + str(verify_on_clear_bits))
+    print("decrypted message " + str(message))
+    verify_on_clear_bits_computed_crc = bitstring.BitArray(uint=crc32(bytearray(verify_on_clear_bits.bytes))[0],
+                                                           length=32)
+    verify_crc = bitstring.BitArray(uint=crc32(bytearray(message.bytes))[0], length=32)
+    print("computed crc  " + str(verify_on_clear_bits_computed_crc))
+    print("verify crc  " + str(verify_crc))
+
+    # Mount new frame
+    malicious_frame_payload = bytearray(malicious_payload_bits.tobytes())
+    malicious_bits = final_inject
+    malicious_crc_bits = bitstring.BitArray(uint=crc32(bytearray(malicious_bits.tobytes()))[0], length=32)
+    malicious_crc = bytearray(verify_on_clear_bits_computed_crc.tobytes())
+
+    malicious_frame = Frame(frame.iv, malicious_crc, malicious_frame_payload)
+
+    print("Malicious frame valid ? " + str(malicious_frame.is_valid(key, True)))
+
+    print("====== Fresh mount =====")
+
+    reference_length = len(frame.payload) - 4
+
+    # Input message has to be shorter or of equal length to original message
+    if len(m_prime) > reference_length:
+        print("Inject message too long")
+        return
+
+    # Egalise message length if necessary
+    if len(m_prime) < reference_length:
+        inject = bitstring.BitArray(prepend_zeros(bytes(m_prime), reference_length - len(m_prime)))
+    else:
+        inject = bitstring.BitArray(bytes(m_prime))
+
+    # Create complementary bitstream for xor injection
+    zero_bits = bitstring.BitArray((reference_length + 4) * b"0")
+
+    # Calculate CRC of message
+    inject_crc = bitstring.BitArray(uint=crc32(bytearray(inject))[0], length=32)
+    inject_full = inject + inject_crc
+
+    # Get CRC of original message
+    original_crc = frame.payload[-4:]
+    original_crc_bits = bitstring.BitArray(original_crc)
+
+    # Transform payload to bitstream
+    payload_bits = bitstring.BitArray(frame.payload)
+
+    # Inject message
+    payload = payload_bits ^ inject_full ^ zero_bits
+
+    # Build new frame
+    injected_frame = Frame(frame.iv, bytearray((inject_crc ^ original_crc_bits).bytes), bytearray(payload.bytes))
+
+    # print("m_ext " + str(m_ext))
+    # print("m2_cr " + str(m2_crc_ex_bits))
+    # print("paylo " + str(payload_bits))
+    # print("strea " + str(stream_bits))
+    # print("bitsS " + str(bit_stream))
+    # print("=========================")
+    # print("inject  : " + str(inject_full.bin))
+    # print("payload : " + str(payload_bits.bin))
+    # print("zeros   : " + str(zero_bits.bin))
+    # print("result  : " + str(payload.bin))
+
+    return injected_frame
 
 
 if __name__ == '__main__':
     # Variables (You would want to play here and change the values)
-    plaintext = "My cleartext"
-    secret_key = "Key"
+    # plaintext = "My cleartext"
+    # secret_key = "Key"
 
-    inject_message = "is modified!"
+    # inject_message = "is modified!"
+    plaintext = b"000yay"
+    secret_key = b"c"
+    inject_message = b"secret"
+
 
     print("=== Test Run ===")
-    print("=> Plaintext : " + plaintext)
-    print("=> secret : " + secret_key)
-    print("=> injection message : " + inject_message)
+    print("=> Plaintext : " + str(plaintext))
+    print("=> secret : " + str(secret_key))
+    print("=> injection message : " + str(inject_message))
 
     print("")
     print("### Setting parameters ...")
 
     # Plaintext
     plain = bytearray()
-    plain.extend(plaintext.encode())
+    plain.extend(plaintext)
 
     # Secret
     key = bytearray()
-    key.extend(secret_key.encode())
+    key.extend(secret_key)
 
     injection = bytearray()
-    injection.extend(inject_message.encode())
+    injection.extend(inject_message)
 
     print("")
     print("### 1. Executing CRC32:=proc(M) ###")
@@ -458,12 +785,20 @@ if __name__ == '__main__':
         exit(0)
 
     new_frame = inject(injection, plain, frame, True)
-    print("New Frame :")
-    print(new_frame)
-    print("Frame Validity : " + str(new_frame.is_valid(key)))
+    # print("New Frame :")
+    # print(new_frame)
+    # print("Frame Validity : " + str(new_frame.is_valid(key, True)))
 
-    clear = rc4_decrypt(key, new_frame)
-    print("decrypted : " + byte_to_string(clear))
+    bin_frame = bin_inject(injection, plain, frame, key)
+    print("Injected Frame :")
+    print(bin_frame)
+    print("Injected Frame Validity : " + str(bin_frame.is_valid(key, True)))
+
+    clear = rc4_decrypt(key, bin_frame)
+    try:
+        print("decrypted : " + byte_to_string(clear))
+    except TypeError:
+        print(clear)
     compare = bytearray()
     for i in range(max(len(plain), len(injection))):
         if i >= len(plain):
@@ -473,7 +808,7 @@ if __name__ == '__main__':
                 compare.extend(plain[i:i + 1])
             else:
                 compare.extend((plain[i] ^ injection[i]).to_bytes(1, byteorder='big'))
-    if new_frame.is_valid(key) and clear == compare:
+    if bin_frame.is_valid(key) and clear == compare:
         print("Successfull injection !")
     else:
         print("Injection failed :(")
