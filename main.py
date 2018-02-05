@@ -9,8 +9,7 @@ if __name__ == '__main__':
     # inject_message = "is modified!"
     plaintext = b"My cleartext"
     secret_key = 7038329
-    inject_message = "yo!"
-    # inject_message = "is modified!"
+    inject_message = "is modified!"
 
     plain = bitstring.Bits(plaintext)
     key = bitstring.Bits(uint=secret_key, length=24)  # length of input in bits
