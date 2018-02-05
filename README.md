@@ -5,7 +5,7 @@ Chop-Chop Attack on WEPs RC4 implementation
 Debian 8 (up-to-date) with python 3
 
 # Usage with default test values
-&> python3 main.py
+$ python3 main.py
 
 
 # Info

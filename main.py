@@ -15,7 +15,6 @@ if __name__ == '__main__':
     key = bitstring.Bits(uint=secret_key, length=24)  # length of input in bits
     injection = bitstring.Bits(inject_message.encode())
 
-
     #
     #
     #
@@ -30,7 +29,7 @@ if __name__ == '__main__':
     #
     print("Testing WEP RC4 decryption ...")
     try:
-        clear = wep_rc4_decrypt(key, frame)
+        clear = frame.decrypt(key)
 
         if clear == plaintext:
             print("Success !")
@@ -59,7 +58,7 @@ if __name__ == '__main__':
 
     clear = Bits()
     try:
-        clear = wep_rc4_decrypt(key, malicious_frame)
+        clear = malicious_frame.decrypt(key)
         print("Decrypted payload : " + str(clear))
     except ValueError as e:
         print("[ERROR] Decryption failed.", str(e))

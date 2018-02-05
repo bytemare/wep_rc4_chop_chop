@@ -63,11 +63,17 @@ def rc4_prga(s, t: int):
     Given a register R and an integer t, returns a RC4 cipher stream of length t.
 
     Warning : t is in the length of characters, not the number of bits. So be sure to accordingly divide by 8.
+    Raises ValueError exception it input t is not a positive non-zero nor multiple of 8.
 
     :param s:
     :type t: int
     :return:
     """
+
+    if t <= 0 or t % 8 != 0:
+        raise ValueError("Error in input value 't'. Must be a positive multiple of 8 corresponding to the number of "
+                         "characters the cipherstream is desired to have.")
+
     w = 256
     c = j = 0
     cs = BitArray()
@@ -83,14 +89,14 @@ def rc4_prga(s, t: int):
     return cs
 
 
-def rc4_crypt(data: Bits, k: Bits):
+def rc4_crypt(data: Bits, key: Bits):
     """
     RC4 Encryption
     Can be used for encryption and decryption
     Given a message and a key, returns the rc4 de/encryption of data with key k
     :type data: Bits
-    :type k: Bits
+    :type key: Bits
     :return:
     """
-    s = rc4_ksa(k)
+    s = rc4_ksa(key)
     return data ^ rc4_prga(s, len(data) // 8)

@@ -16,6 +16,34 @@ class Frame:
         self.crc = crc
         self.payload = payload
 
+    def decrypt(self, key: Bits):
+        """
+        Given the secret key, decrypts the frames payload and returns the cleartext message.
+        Raises a ValuerError if the frame is not valid, i.e. if the message is not validated by its crc32.
+        :param key:
+        :return:
+        """
+        # Prepare key for decryption
+        ivk = wep_make_ivk(key, self.iv)
+
+        # Decrypt
+        decrypted_payload = rc4_crypt(self.payload, ivk)
+
+        # Get the cleartext and the crc that were in the encrypted packet
+        cleartext_msg = decrypted_payload[:-len(self.crc)]
+        decrypted_crc = decrypted_payload[-len(self.crc):]
+
+        # Compute crc32 from decrypted message
+        computed_crc = crc32(cleartext_msg)
+
+        # Check if Frame is valid by verifying crc32 fingerprints
+        try:
+            assert decrypted_crc == computed_crc
+        except AssertionError:
+            raise ValueError("MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation.")
+
+        return cleartext_msg
+
     def is_valid(self, key: Bits):
         """
         (copy) Reduced function of below "rc4_decrypt"
@@ -23,16 +51,13 @@ class Frame:
         :param key:
         :return: True or False
         """
-        ivk = wep_make_ivk(key, self.iv)
-        decrypted = rc4_crypt(self.payload, ivk)
 
-        decrypted_message = decrypted[:-len(self.crc)]
-
-        decrypted_crc = decrypted[-len(self.crc):]
-
-        computed_crc = crc32(decrypted_message)
-
-        return decrypted_crc == computed_crc
+        try:
+            _ = self.decrypt(key)
+            return True
+        except ValueError as e:
+            print(str(e))
+            return False
 
     def __iter__(self):
         yield self.iv
@@ -48,7 +73,7 @@ def wep_make_ivk(key: Bits, iv: Bits, order="key+iv"):
     """
     Given a key and initialisation vector, returns the concatenation of both,
     depending on the order given by order (never sure what order it is)
-    Default is to append vi to key.
+    Default is to append iv to key.
     :param key:
     :param iv:
     :param order:
@@ -81,42 +106,15 @@ def wep_rc4_encrypt(m: Bits, k: Bits):
     :return:
      """
 
-    iv = random_iv()
+    # We want 3 random bytes, or 24 random bits
+    iv = random_iv(24)
+
+    # WEP concatenates the key with a IV to encrypt
     ivk = wep_make_ivk(k, iv)
 
     cipher = rc4_crypt(m, ivk)
 
     return iv, cipher
-
-
-def wep_rc4_decrypt(k: Bits, frame: Frame):
-    """
-    Given a key k and frame f, decrypts frame with key and returns cleartext.
-    An error is raised if frame is not a valid frame.
-    :type k: bytearray
-    :type frame: Frame
-    :return:
-    """
-    # Preprare key for decryption
-    ivk = wep_make_ivk(k, frame.iv)
-
-    # Decrypt
-    decrypted_payload = rc4_crypt(frame.payload, ivk)
-
-    # Get the cleartext and the crc that were in the encrypted packet
-    cleartext_msg = decrypted_payload[:-len(frame.crc)]
-    decrypted_crc = decrypted_payload[-len(frame.crc):]
-
-    # Compute crc32 from decrypted message
-    computed_crc = crc32(cleartext_msg)
-
-    # Check if Frame is valid by verifying crc32 fingerprints
-    try:
-        assert decrypted_crc == computed_crc
-    except AssertionError:
-        raise ValueError("MAC ERROR. Invalid Frame (possibly corrupted). Cause : crc32 invalidation.")
-
-    return cleartext_msg
 
 
 def wep_make_frame(m: Bits, key: Bits):
@@ -130,11 +128,12 @@ def wep_make_frame(m: Bits, key: Bits):
     :param key:
     :return: IV, CRC, Cipher
     """
+
+    # Compute the crc32 of message m
     crc = crc32(m)
 
-    m_and_crc = m + crc
-
-    iv, cipher = wep_rc4_encrypt(m_and_crc, key)
+    # Concatenate that crc32 to its message and encrypt with key
+    iv, cipher = wep_rc4_encrypt(m + crc, key)
 
     return Frame(iv, crc, cipher)
 
@@ -172,7 +171,7 @@ def wep_inject(inject: Bits, frame):
     NB. : the '0' in crc(0) must be of the same length as the encrypted message, since the crc varies across its length
     =============
 
-    What we will do here is, given a frame for message m, inejcted the message 'inject_message
+    What we will do here is, given a frame for message m, inject the message 'inject_message' into the encrypted message
 
     :param inject:
     :param frame:
