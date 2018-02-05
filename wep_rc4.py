@@ -141,7 +141,9 @@ def wep_make_frame(m: Bits, key: Bits):
 def wep_inject(inject: Bits, frame):
     """
     Given two messages m1 and m2, and the frame associated with m2 (as by the return values of wep_frame()),
-    returns a valid frame for m1^m2
+    returns a valid frame for m1^m2.
+
+    Raises ValueError if inject message exceeds the original message's length.
 
     === Trick ===
     Base :
@@ -180,6 +182,14 @@ def wep_inject(inject: Bits, frame):
 
     # Get message length in bytes
     reference_byte_length = (len(frame.payload) - len(frame.crc)) // 8
+
+    # If there is a difference in length between the original and injection message,
+    # Prepend zeros to the injection message
+    difference = reference_byte_length - (len(inject) // 8)
+    if difference < 0:
+        raise ValueError("Error with inject : inject message is too long. Must be of equal or lower length.")
+    elif difference > 0:
+        inject = Bits(difference * 8) + inject
 
     # Generate an array of 0 bits
     zero_bits = Bits(reference_byte_length * b"\0")

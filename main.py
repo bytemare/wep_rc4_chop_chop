@@ -9,7 +9,8 @@ if __name__ == '__main__':
     # inject_message = "is modified!"
     plaintext = b"My cleartext"
     secret_key = 7038329
-    inject_message = "is modified!"
+    inject_message = "yo!"
+    # inject_message = "is modified!"
 
     plain = bitstring.Bits(plaintext)
     key = bitstring.Bits(uint=secret_key, length=24)  # length of input in bits
@@ -46,9 +47,9 @@ if __name__ == '__main__':
     #
     print("Testing WEP frame message injection...")
     try:
-        assert len(plain) == len(injection)
+        assert len(plain) >= len(injection)
     except AssertionError:
-        print("For now only injection messages of same length as plaintext are accepted. Injection Aborted.")
+        print("Only injection messages of same or lower length as plaintext are accepted. Injection Aborted.")
         exit(0)
 
     malicious_frame = wep_inject(injection, frame)
@@ -65,6 +66,7 @@ if __name__ == '__main__':
 
     # Other way of testing
     # Test if decrypted message is effectively the xor value of initial message and inject message
+    injection = Bits(len(plain) - len(injection)) + injection
     xor = plain ^ injection
     crc_xor = crc32(xor)
     crc_clear = crc32(clear)
